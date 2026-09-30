@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Run Left or Right - Subtraction</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:Arial,sans-serif;background:#101b35;color:#fff}
+#game{position:relative;width:100%;height:100%;overflow:hidden;background:linear-gradient(#294b70,#101c35)}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:.24}
+#shade{position:absolute;inset:0;background:rgba(7,13,28,.72)}
+#hud{position:absolute;top:10px;left:10px;right:10px;z-index:5;display:flex;justify-content:space-between;gap:6px}
+.badge{background:#10203de8;border:2px solid #72dcff;border-radius:14px;padding:7px 11px;font-weight:900;font-size:clamp(13px,2.4vw,21px)}
+#center{position:absolute;top:10%;left:0;right:0;text-align:center;z-index:4}
+#question{font-size:clamp(48px,10vw,92px);font-weight:900;text-shadow:0 5px 12px #000;margin:0 0 8px}
+#hint{font-size:clamp(16px,3vw,25px);font-weight:900}
+#lanes{position:absolute;left:4%;right:4%;bottom:7%;height:55%;display:flex;gap:3%;z-index:3}
+.lane{flex:1;border:5px solid #fff;border-radius:30px;background:#ffffff18;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:.18s;box-shadow:0 8px 25px #0006}
+.lane .arrow{font-size:clamp(42px,9vw,80px)}
+.lane .answer{font-size:clamp(45px,10vw,95px);font-weight:900;text-shadow:0 5px 10px #000}
+.lane.active{transform:scale(1.04);border-color:#ffe36b;background:#65d8ff55;box-shadow:0 0 30px #ffe36b}
+.lane.correct{background:#35b96c88;border-color:#a1ffc1}
+.lane.wrong{background:#c93f4e88;border-color:#ff9ca5}
+#runner{position:absolute;left:50%;bottom:2%;transform:translateX(-50%);font-size:clamp(48px,10vw,90px);z-index:6}
+#head{position:absolute;width:50px;height:50px;border:5px solid #fff;border-radius:50%;background:#65d8ff44;box-shadow:0 0 25px #65d8ff;transform:translate(-50%,-50%);display:none;z-index:7;pointer-events:none}
+#start,#end{position:absolute;inset:0;z-index:10;background:#08101eef;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px}
+#end{display:none}
+h1{font-size:clamp(34px,8vw,72px);margin:5px}
+p{font-size:clamp(17px,3vw,26px);max-width:850px;line-height:1.4}
+button{border:0;border-radius:18px;padding:16px 28px;background:#ffe05b;color:#251900;font-size:clamp(18px,3vw,28px);font-weight:900;box-shadow:0 7px #9b7213}
+#loading{display:none;margin-top:14px;font-weight:900}
+#err{color:#ffabb2;font-weight:900;max-width:850px}
+#feedback{position:absolute;inset:0;z-index:8;display:flex;align-items:center;justify-content:center;font-size:clamp(40px,10vw,100px);font-weight:900;text-shadow:0 5px 15px #000;opacity:0;pointer-events:none}
+#feedback.show{animation:pop .9s ease}
+@keyframes pop{0%{opacity:0;transform:scale(.7)}30%{opacity:1;transform:scale(1.08)}100%{opacity:0;transform:scale(1)}}
+</style>
+</head>
+<body>
+<div id="game">
+<video id="video" playsinline muted autoplay></video><div id="shade"></div>
+<div id="hud">
+<div class="badge">⭐ <span id="score">0</span></div>
+<div class="badge">❤️ <span id="lives">3</span></div>
+<div class="badge">🏃 <span id="round">1</span>/10</div>
+<div class="badge">⏱️ <span id="time">10</span></div>
+</div>
+<div id="center"><div id="question">7 − 3 = ?</div><div id="hint">MOVE LEFT OR RIGHT TO CHOOSE!</div></div>
+<div id="lanes">
+<div class="lane"><div class="arrow">⬅️</div><div class="answer">?</div></div>
+<div class="lane"><div class="arrow">➡️</div><div class="answer">?</div></div>
+</div>
+<div id="runner">🏃</div><div id="head"></div><div id="feedback"></div>
+
+<div id="start">
+<div style="font-size:70px">🏃‍♂️</div>
+<h1>RUN LEFT OR RIGHT!</h1>
+<p>Answer <b>10 random subtraction questions</b>. Move your <b>head and shoulders</b> left or right to choose the answer.</p>
+<p>➖ Subtraction within 10 &nbsp; • &nbsp; ⏱️ 10 seconds each</p>
+<button id="startBtn">START GAME</button>
+<div id="loading">Opening camera…</div><div id="err"></div>
+</div>
+
+<div id="end">
+<div style="font-size:70px">🏆</div><h1 id="endTitle">GREAT JOB!</h1><p id="endText"></p>
+<button onclick="location.reload()">PLAY AGAIN</button>
+</div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const video=$("video"),btn=$("startBtn"),start=$("start"),loading=$("loading"),err=$("err");
+const head=$("head"),feedback=$("feedback"),lanes=[...document.querySelectorAll(".lane")];
+let stream=null,hands=null,camera=null,running=false,locked=false,score=0,lives=3,round=0,time=10,timer=null;
+let headX=.5,target=0,questions=[],lastSide="",sideStable=0;
+
+function shuffle(a){for(let i=a.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
+function buildQuestions(){
+  const all=[];
+  for(let a=0;a<=10;a++) for(let b=0;b<=a;b++) all.push([a,b]);
+  questions=shuffle(all).slice(0,10);
+}
+function makeQuestion(){
+  locked=false;lastSide="";sideStable=0;
+  lanes.forEach(l=>l.classList.remove("correct","wrong","active"));
+  const [a,b]=questions[round];target=a-b;
+  $("question").textContent=`${a} − ${b} = ?`;
+  $("round").textContent=round+1;
+  // Exactly two choices: one correct and one plausible distractor.
+  let wrong=target+(Math.random()<.5?-1:1);
+  if(wrong<0)wrong=target+1;
+  if(wrong>10)wrong=target-1;
+  if(wrong===target)wrong=target===0?1:target-1;
+  const choices=shuffle([target,wrong]);
+  lanes.forEach((l,i)=>l.querySelector(".answer").textContent=choices[i]);
+  lanes.forEach((l,i)=>l.dataset.answer=choices[i]);
+  time=10;$("time").textContent=10;clearInterval(timer);
+  timer=setInterval(()=>{time--;$("time").textContent=Math.max(0,time);if(time<=0){clearInterval(timer);answer(false)}},1000);
+}
+function showFeedback(text){feedback.textContent=text;feedback.className="show"}
+function answer(ok){
+  if(locked||!running)return;locked=true;clearInterval(timer);
+  if(ok){
+    score+=10;$("score").textContent=score;
+    lanes.find(l=>+l.dataset.answer===target).classList.add("correct");showFeedback("✅ CORRECT!");
+    if(round===9){setTimeout(()=>finish(true),1400);return}
+    round++;setTimeout(makeQuestion,1400);
+  }else{
+    lives--;$("lives").textContent=lives;
+    lanes.find(l=>+l.dataset.answer===target).classList.add("correct");showFeedback("❌ TRY AGAIN!");
+    if(lives<=0){setTimeout(()=>finish(false),1400);return}
+    setTimeout(makeQuestion,1600);
+  }
+}
+function chooseSide(x){
+  if(!running||locked)return;
+  const side=x<.5?"left":"right";
+  const idx=side==="left"?0:1;
+  lanes.forEach((l,i)=>l.classList.toggle("active",i===idx));
+  if(side===lastSide) sideStable++; else {lastSide=side;sideStable=1}
+  // Require the body/head to remain on one side for several frames.
+  if(sideStable>=7) answer(+lanes[idx].dataset.answer===target);
+}
+function finish(win){
+  running=false;clearInterval(timer);
+  $("endTitle").textContent=win?"YOU DID IT!":"GAME OVER";
+  $("endText").textContent=win?`You completed 10 subtraction questions! Score: ${score}`:`Score: ${score}. Play again for a new random question order.`;
+  $("end").style.display="flex";
+}
+async function openCamera(){
+  if(!navigator.mediaDevices?.getUserMedia)throw Error("Camera access is not available.");
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"user",width:{ideal:1280},height:{ideal:720}},audio:false});
+  video.srcObject=stream;await video.play();
+}
+async function loadPose(){
+  // MediaPipe Pose: head + shoulders are read from the pose landmarks.
+  await new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js";
+    s.onload=res;s.onerror=()=>rej(Error("Could not load the body sensor."));
+    document.head.appendChild(s);
+  });
+  await new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js";
+    s.onload=res;s.onerror=()=>rej(Error("Could not load the camera helper."));
+    document.head.appendChild(s);
+  });
+  const pose=new Pose({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/pose/${f}`});
+  pose.setOptions({modelComplexity:0,smoothLandmarks:true,minDetectionConfidence:.55,minTrackingConfidence:.55});
+  pose.onResults(r=>{
+    if(!running||locked)return;
+    const lm=r.poseLandmarks;
+    if(!lm)return;
+    // Head: average of ears/eyes; shoulders stabilize the left/right decision.
+    const nose=lm[0], le=lm[7], re=lm[8], ls=lm[11], rs=lm[12];
+    const hx=(nose.x+le.x+re.x)/3;
+    const shoulderX=(ls.x+rs.x)/2;
+    // Blend head and shoulder center; mirror because video is mirrored.
+    const x=1-(hx*.65+shoulderX*.35);
+    headX=Math.max(0,Math.min(1,x));
+    head.style.display="block";head.style.left=(headX*100)+"%";head.style.top="23%";
+    chooseSide(headX);
+  });
+  camera=new Camera(video,{onFrame:async()=>{if(running&&!locked)await pose.send({image:video})},width:1280,height:720});
+  camera.start();
+}
+async function startGame(){
+  btn.disabled=true;loading.style.display="block";err.textContent="";
+  try{
+    await openCamera();loading.textContent="Loading body sensor…";await loadPose();
+    buildQuestions();score=0;lives=3;round=0;$("score").textContent=0;$("lives").textContent=3;
+    start.style.display="none";running=true;makeQuestion();
+  }catch(e){
+    err.textContent=e.message||"Game could not start.";loading.style.display="none";btn.disabled=false;btn.textContent="TRY AGAIN";
+    if(stream)stream.getTracks().forEach(t=>t.stop());
+  }
+}
+btn.addEventListener("click",startGame);
+</script></body></html>
